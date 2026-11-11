@@ -157,7 +157,14 @@ jobs:
               -d KSU_SUSFS_SUS_PATH -d KSU_SUSFS_SUS_OVERLAYFS -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU
           fi
           make $MAKE_ARGS olddefconfig
-          grep -E "^CONFIG_KSU|^CONFIG_LOCALVERSION" out/.config | head -8
+          echo "==== KSU 相关配置 ===="
+          grep -i ksu out/.config | head -25
+          echo "==== 驱动 Kconfig 头部 ===="
+          head -25 drivers/kernelsu/Kconfig
+          if ! grep -q "^CONFIG_KSU=y" out/.config; then
+            echo "CONFIG_KSU 没有生效，停止"
+            exit 1
+          fi
           set -o pipefail
           make $MAKE_ARGS -j$(nproc) 2>&1 | tee build.log
           ls -l out/arch/arm64/boot/Image
