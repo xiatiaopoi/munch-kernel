@@ -1,0 +1,178 @@
+name: Build akers tree with latest KSU
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_variant:
+        description: 'KSU 变体'
+        required: true
+        type: choice
+        default: 'SukiSU-Ultra'
+        options:
+          - 'SukiSU-Ultra'
+          - 'ReSukiSU'
+      ksu_ref:
+        description: 'KSU 分支或标签'
+        required: true
+        type: string
+        default: 'v4.3.0'
+      susfs:
+        description: 'SUSFS'
+        required: true
+        type: choice
+        default: 'enable'
+        options:
+          - 'enable'
+          - 'disable'
+
+env:
+  SRC: ${{ github.workspace }}/kernel
+
+jobs:
+  build:
+    name: Build munch latest KSU
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: 清理磁盘
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio \
+            libssl-dev ccache python-is-python3 unzip libelf-dev
+
+      - name: 准备 Clang 13.0.1
+        run: |
+          mkdir -p $HOME/proton-clang/proton-clang-20210522
+          cd $HOME/proton-clang/proton-clang-20210522
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/13.0.1-20230207-release/Clang-13.0.1-20230207.tar.gz
+          tar -zxf Clang-13.0.1-20230207.tar.gz
+          export PATH="$HOME/proton-clang/proton-clang-20210522/bin:$PATH"
+          clang --version
+
+      - name: 克隆内核源码
+        run: |
+          git clone --depth=1 -b android16-aptusitu-zyc \
+            https://github.com/akers4238/kernel_xiaomi_sm8250_mod-20251002-zyc "$SRC"
+          cd "$SRC"
+          git log -1 --oneline
+          make kernelversion
+
+      - name: 集成最新 KSU 驱动
+        run: |
+          cd "$SRC"
+          V="${{ github.event.inputs.ksu_variant }}"
+          R="${{ github.event.inputs.ksu_ref }}"
+          if [ "$V" = "ReSukiSU" ]; then
+            URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$R/kernel/setup.sh"
+          else
+            URL="https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/$R/kernel/setup.sh"
+          fi
+          echo "驱动来源 $URL"
+          curl -LSs "$URL" | bash -s "$R"
+          ls -d drivers/kernelsu
+          grep -n kernelsu drivers/Makefile drivers/Kconfig | head -3
+
+      - name: 打 4.19 兼容补丁
+        run: |
+          cd "$SRC"
+          grep -rl "MODULE_IMPORT_NS" drivers/kernelsu 2>/dev/null | while read f; do
+            sed -i 's|^MODULE_IMPORT_NS(.*|/* 4.19 无此宏 */|' "$f"
+          done
+          if [ ! -f include/linux/pgtable.h ]; then
+            printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
+          fi
+          printf '#ifndef _LINUX_KSU_COMPAT_H\n#define _LINUX_KSU_COMPAT_H\n#include <linux/uaccess.h>\nstatic inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)\n{\n\tlong ret;\n\tpagefault_disable();\n\tret = strncpy_from_user(dst, unsafe_addr, count);\n\tpagefault_enable();\n\treturn ret;\n}\nstatic inline long copy_to_kernel_nofault(void *dst, const void __user *src, size_t size)\n{\n\tunsigned long ret;\n\tpagefault_disable();\n\tret = copy_from_user(dst, src, size);\n\tpagefault_enable();\n\treturn ret ? -EFAULT : 0;\n}\nstatic inline long copy_from_kernel_nofault(void *dst, const void *src, size_t size)\n{\n\tif (!access_ok(VERIFY_READ, src, size))\n\t\treturn -EFAULT;\n\tmemcpy(dst, src, size);\n\treturn 0;\n}\n#endif\n' > include/linux/ksu_compat.h
+          grep -rlE "strncpy_from_user_nofault|copy_to_kernel_nofault|copy_from_kernel_nofault" drivers/kernelsu 2>/dev/null | while read f; do
+            grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
+          done
+          if ! grep -q "REMAP_FILE_DEDUP" include/linux/fs.h; then
+            sed -i 's|^struct file_operations {|#ifndef REMAP_FILE_DEDUP\n#define REMAP_FILE_DEDUP 4\n#endif\n\nstruct file_operations {|' include/linux/fs.h
+          fi
+          if ! grep -q "iopoll)(struct kiocb" include/linux/fs.h; then
+            sed -i 's|^struct file_operations {|struct file_operations {\n\tint (*iopoll)(struct kiocb *kiocb, bool spin);\n\tloff_t (*remap_file_range)(struct file *file_in, loff_t pos_in, struct file *file_out, loff_t pos_out, loff_t len, unsigned int remap_flags);|' include/linux/fs.h
+          fi
+          FW=drivers/kernelsu/infra/file_wrapper.c
+          if [ -f "$FW" ]; then
+            sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; /* 4.19 无此接口 */|' "$FW"
+          fi
+          if [ -f drivers/kernelsu/infra/seccomp_cache.c ]; then
+            printf '#include <linux/types.h>\nstruct seccomp_filter;\nvoid ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\nvoid ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\n' > drivers/kernelsu/infra/seccomp_cache.c
+          fi
+          grep -rl "uapi/linux/mount.h" drivers/kernelsu 2>/dev/null | while read f; do
+            sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' "$f"
+          done
+
+      - name: 补 reboot 钩子
+        run: |
+          cd "$SRC"
+          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
+            N=$(awk '/SYSCALL_DEFINE4\(reboot,/{f=NR} f && /int ret = 0;/ && NR>f {print NR; exit}' kernel/reboot.c)
+            echo "插入位置 $N"
+            { head -n "$N" kernel/reboot.c; printf '#ifdef CONFIG_KSU_MANUAL_HOOK\n\textern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n'; tail -n +$((N+1)) kernel/reboot.c; } > /tmp/reboot.c
+            mv /tmp/reboot.c kernel/reboot.c
+            grep -n "ksu_handle_sys_reboot" kernel/reboot.c
+          fi
+
+      - name: 编译
+        run: |
+          cd "$SRC"
+          export PATH="$HOME/proton-clang/proton-clang-20210522/bin:$PATH"
+          export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
+          make $MAKE_ARGS munch_defconfig
+          scripts/config --file out/.config -e KSU -e KSU_MANUAL_HOOK \
+            -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+          if [ "${{ github.event.inputs.susfs }}" = "enable" ]; then
+            scripts/config --file out/.config -e KSU_SUSFS -e KSU_SUSFS_SUS_MOUNT \
+              -e KSU_SUSFS_SUS_KSTAT -e KSU_SUSFS_TRY_UMOUNT \
+              -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+              -d KSU_SUSFS_SUS_PATH -d KSU_SUSFS_SUS_OVERLAYFS -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU
+          fi
+          make $MAKE_ARGS olddefconfig
+          grep -E "^CONFIG_KSU|^CONFIG_LOCALVERSION" out/.config | head -8
+          set -o pipefail
+          make $MAKE_ARGS -j$(nproc) 2>&1 | tee build.log
+          ls -l out/arch/arm64/boot/Image
+
+      - name: 打包 AnyKernel3
+        run: |
+          cd "$SRC"
+          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+          git clone --depth=1 -b kona https://github.com/liyafe1997/AnyKernel3 anykernel
+          mkdir -p anykernel/kernels
+          cp out/arch/arm64/boot/Image anykernel/kernels/
+          cp out/arch/arm64/boot/dtb anykernel/kernels/
+          cd anykernel
+          NAME="munch-${{ github.event.inputs.ksu_variant }}-${{ github.event.inputs.ksu_ref }}-susfs${{ github.event.inputs.susfs }}.zip"
+          zip -r9 "../$NAME" *
+          cd ..
+          ls -l "$NAME"
+          cp "$NAME" "$GITHUB_WORKSPACE/"
+
+      - name: 保留失败日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-failed
+          path: |
+            kernel/build.log
+            kernel/out/.config
+          retention-days: 7
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: munch-${{ github.event.inputs.ksu_variant }}-${{ github.event.inputs.ksu_ref }}
+          path: ${{ github.workspace }}/munch-*.zip
+          retention-days: 30
