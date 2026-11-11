@@ -107,18 +107,27 @@ jobs:
           if [ ! -f include/linux/pgtable.h ]; then
             printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
           fi
-          if ! grep -RqE "strncpy_from_user_nofault|copy_from_kernel_nofault" include/linux/uaccess.h include/linux/mm.h 2>/dev/null; then
-          printf '#ifndef _LINUX_KSU_COMPAT_H\n#define _LINUX_KSU_COMPAT_H\n#include <linux/uaccess.h>\nstatic inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)\n{\n\tlong ret;\n\tpagefault_disable();\n\tret = strncpy_from_user(dst, unsafe_addr, count);\n\tpagefault_enable();\n\treturn ret;\n}\nstatic inline long copy_to_kernel_nofault(void *dst, const void __user *src, size_t size)\n{\n\tunsigned long ret;\n\tpagefault_disable();\n\tret = copy_from_user(dst, src, size);\n\tpagefault_enable();\n\treturn ret ? -EFAULT : 0;\n}\nstatic inline long copy_from_kernel_nofault(void *dst, const void *src, size_t size)\n{\n\tif (!access_ok(VERIFY_READ, src, size))\n\t\treturn -EFAULT;\n\tmemcpy(dst, src, size);\n\treturn 0;\n}\n#endif\n' > include/linux/ksu_compat.h
-          grep -RlE "strncpy_from_user_nofault|copy_to_kernel_nofault|copy_from_kernel_nofault" drivers/kernelsu 2>/dev/null | while read f; do
-            grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
-          done
+          H=include/linux/ksu_compat.h
+          echo '#ifndef _LINUX_KSU_COMPAT_H' > $H
+          echo '#define _LINUX_KSU_COMPAT_H' >> $H
+          echo '#include <linux/uaccess.h>' >> $H
+          grep -Rq "strncpy_from_user_nofault" include/linux/ 2>/dev/null || printf 'static inline long strncpy_from_user_nofault(char *d, const void __user *s, long c)\n{\n\tlong r;\n\tpagefault_disable();\n\tr = strncpy_from_user(d, s, c);\n\tpagefault_enable();\n\treturn r;\n}\n' >> $H
+          grep -Rq "copy_to_kernel_nofault" include/linux/ 2>/dev/null || printf 'static inline long copy_to_kernel_nofault(void *d, const void __user *s, size_t n)\n{\n\tunsigned long r;\n\tpagefault_disable();\n\tr = copy_from_user(d, s, n);\n\tpagefault_enable();\n\treturn r ? -EFAULT : 0;\n}\n' >> $H
+          grep -Rq "copy_from_kernel_nofault" include/linux/ 2>/dev/null || printf 'static inline long copy_from_kernel_nofault(void *d, const void *s, size_t n)\n{\n\tif (!access_ok(VERIFY_READ, s, n))\n\t\treturn -EFAULT;\n\tmemcpy(d, s, n);\n\treturn 0;\n}\n' >> $H
+          echo '#endif' >> $H
+          KC=drivers/kernelsu/compat/kernel_compat.h
+          if [ -f "$KC" ]; then
+            grep -q "ksu_compat.h" "$KC" || sed -i '1i #include <linux/ksu_compat.h>' "$KC"
           else
-            echo "驱动自带 compat，跳过 nofault 垫片"
+            grep -Rl "nofault" drivers/kernelsu --include=*.c 2>/dev/null | while read f; do grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"; done
           fi
+          echo "ksu_compat.h nofault 行数: $(grep -c nofault $H)"
           if ! grep -q "REMAP_FILE_DEDUP" include/linux/fs.h; then
             sed -i 's|^struct file_operations {|#ifndef REMAP_FILE_DEDUP\n#define REMAP_FILE_DEDUP 4\n#endif\n\nstruct file_operations {|' include/linux/fs.h
           fi
           if ! grep -q "iopoll)(struct kiocb" include/linux/fs.h; then
+            sed -i 's|^struct file_operations {|struct file_operations {\n\tint (*iopoll)(struct kiocb *kiocb, bool spin);\n\tloff_t (*remap_file_range)(struct file *file_in, loff_t pos_in, struct file *file_out, loff_t pos_out, loff_t len, unsigned int remap_flags);|' include/linux/fs.h
+          fi
             sed -i 's|^struct file_operations {|struct file_operations {\n\tint (*iopoll)(struct kiocb *kiocb, bool spin);\n\tloff_t (*remap_file_range)(struct file *file_in, loff_t pos_in, struct file *file_out, loff_t pos_out, loff_t len, unsigned int remap_flags);|' include/linux/fs.h
           fi
           FW=drivers/kernelsu/infra/file_wrapper.c
