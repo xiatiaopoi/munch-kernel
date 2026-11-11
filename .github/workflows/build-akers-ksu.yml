@@ -130,7 +130,7 @@ jobs:
           fi
           FW=drivers/kernelsu/infra/file_wrapper.c
           if [ -f "$FW" ]; then
-            sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; /* 4.19 无此接口 */|' "$FW"
+            sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; (void)qname;|' "$FW"
           fi
           if [ -f drivers/kernelsu/infra/seccomp_cache.c ]; then
             printf '#include <linux/types.h>\nstruct seccomp_filter;\nvoid ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\nvoid ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\n' > drivers/kernelsu/infra/seccomp_cache.c
