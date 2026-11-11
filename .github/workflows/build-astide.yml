@@ -24,6 +24,11 @@ on:
         required: true
         type: string
         default: 'update-ksu-susfs'
+      ksu_ref:
+        description: 'ReSukiSU 版本'
+        required: true
+        type: string
+        default: 'v4.2.0-rc1'
 
 env:
   SRC: ${{ github.workspace }}/kernel
@@ -69,6 +74,11 @@ jobs:
       - name: 编译
         run: |
           cd "$SRC"
+          REF="${{ github.event.inputs.ksu_ref }}"
+          echo "ReSukiSU 版本: $REF"
+          sed -i "s|ReSukiSU/ReSukiSU/main/kernel/setup.sh|ReSukiSU/ReSukiSU/$REF/kernel/setup.sh|" build.sh
+          sed -i "s#| bash\$#| bash -s $REF#" build.sh
+          grep -n "setup.sh" build.sh | head -3
           bash build.sh ${{ github.event.inputs.device }} ${{ github.event.inputs.ksu }}
           ls -l *.zip
 
