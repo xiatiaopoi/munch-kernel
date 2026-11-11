@@ -59,18 +59,15 @@ jobs:
           done
           "$TC/bin/clang" --version
           "$TC/bin/ld.lld" --version
-          ls "$TC/bin"
 
-      - name: 克隆 RealKing 内核源码
+      - name: 克隆内核源码
         run: |
           git clone --depth=1 -b $KB https://github.com/Rohail33/Realking_kernel_sm8250 "$KSRC"
           cd "$KSRC"
-          # 这个树把 CC 包了一层 python2 的 gcc-wrapper.py，Ubuntu 24.04 没有 python2，去掉包装
           sed -i '/gcc-wrapper.py/d' Makefile
           grep -n "^CC" Makefile
           git log -1 --oneline
           make kernelversion
-          ls -l arch/arm64/configs/munch_defconfig
 
       - name: 集成 KernelSU
         if: ${{ github.event.inputs.kernelsu_variant != 'None' }}
@@ -86,33 +83,13 @@ jobs:
           fi
           echo "使用 $KSU_VAR  $KSU_REF"
           curl -LSs "$KSU_URL" | bash -s "$KSU_REF"
-          ls -d drivers/kernelsu
-          grep -n kernelsu drivers/Makefile drivers/Kconfig | head
-          # MODULE_IMPORT_NS 是 5.x 才有的宏，4.19 上会当成函数声明直接报错，去掉
           grep -rl "MODULE_IMPORT_NS" drivers/kernelsu | while read f; do
-            sed -i 's|^MODULE_IMPORT_NS(.*|/* MODULE_IMPORT_NS 在 4.19 不存在，已移除 */|' "$f"
+            sed -i 's|^MODULE_IMPORT_NS(.*|/* MODULE_IMPORT_NS 4.19 没有，已移除 */|' "$f"
           done
-          grep -rn "MODULE_IMPORT_NS" drivers/kernelsu | head -3 || true
-          # 4.19 没有 linux/pgtable.h，SukiSU 里无条件 include，补一个垫片
           if [ ! -f include/linux/pgtable.h ]; then
             printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
           fi
-          grep -rn "linux/pgtable.h" drivers/kernelsu include/linux/pgtable.h | head -3 || true
-          # 4.19 没有 strncpy_from_user_nofault，用 pagefault_disable 包一层等价实现
-          cat > include/linux/ksu_compat.h <<'KSUEOF'
-#ifndef _LINUX_KSU_COMPAT_H
-#define _LINUX_KSU_COMPAT_H
-#include <linux/uaccess.h>
-static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
-{
-	long ret;
-	pagefault_disable();
-	ret = strncpy_from_user(dst, unsafe_addr, count);
-	pagefault_enable();
-	return ret;
-}
-#endif
-KSUEOF
+          printf '#ifndef _LINUX_KSU_COMPAT_H\n#define _LINUX_KSU_COMPAT_H\n#include <linux/uaccess.h>\nstatic inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)\n{\n\tlong ret;\n\tpagefault_disable();\n\tret = strncpy_from_user(dst, unsafe_addr, count);\n\tpagefault_enable();\n\treturn ret;\n}\n#endif\n' > include/linux/ksu_compat.h
           grep -rl "strncpy_from_user_nofault" drivers/kernelsu | while read f; do
             grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
           done
@@ -126,8 +103,6 @@ KSUEOF
           patch -p1 --forward < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
           cd "$KSRC/KernelSU"
           patch -p1 --forward < /tmp/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-          cd "$KSRC"
-          grep -rn "CONFIG_KSU_SUSFS" kernel/Kconfig drivers/Kconfig 2>/dev/null | head -3
 
       - name: 生成配置
         run: |
@@ -185,10 +160,10 @@ KSUEOF
           if [ -f dtbo.img ]; then cp dtbo.img "$AK/"; fi
           cd "$AK"
           rm -rf .git README.md *placeholder
-          ZIP="/tmp/RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.run_number }}.zip"
-          zip -r9 "$ZIP" *
-          cp "$ZIP" "$GITHUB_WORKSPACE/RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.run_number }}.zip"
-          ls -l "$ZIP"
+          NAME="RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.event.inputs.susfs_enable }}-${{ github.run_number }}.zip"
+          zip -r9 "/tmp/$NAME" *
+          cp "/tmp/$NAME" "$GITHUB_WORKSPACE/$NAME"
+          ls -l "$GITHUB_WORKSPACE/$NAME"
 
       - name: 保留编译日志
         if: failure()
@@ -203,6 +178,6 @@ KSUEOF
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: RealKing-munch-${{ github.event.inputs.kernelsu_variant }}
+          name: RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.event.inputs.susfs_enable }}
           path: ${{ github.workspace }}/RealKing-munch-*.zip
           retention-days: 30
