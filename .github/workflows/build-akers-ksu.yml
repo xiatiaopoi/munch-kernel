@@ -109,6 +109,16 @@ jobs:
           grep -rl "uapi/linux/mount.h" drivers/kernelsu 2>/dev/null | while read f; do
             sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' "$f"
           done
+          # ReSukiSU rc3 拒绝 3.x 时代的旧开关钩子，去掉 extern 与条件判断，改成无条件调用
+          if [ "${{ github.event.inputs.ksu_variant }}" = "ReSukiSU" ]; then
+            for f in fs/read_write.c fs/exec.c drivers/input/input.c; do
+              if [ -f "$f" ]; then
+                sed -i '/extern bool ksu_vfs_read_hook/d;/extern bool ksu_execveat_hook/d;/extern bool ksu_input_hook/d' "$f"
+                sed -i 's/if (unlikely(ksu_vfs_read_hook))/if (1)/;s/if (unlikely(ksu_execveat_hook))/if (1)/;s/if (unlikely(ksu_input_hook))/if (1)/;s/if (!ksu_execveat_hook)/if (1)/' "$f"
+              fi
+            done
+            grep -rn "ksu_vfs_read_hook\|ksu_execveat_hook\|ksu_input_hook" fs/read_write.c fs/exec.c drivers/input/input.c | head -5 || echo "旧钩子已清理"
+          fi
 
       - name: 补 reboot 钩子
         run: |
