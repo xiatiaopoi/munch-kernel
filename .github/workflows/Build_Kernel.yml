@@ -56,6 +56,9 @@ jobs:
         run: |
           git clone --depth=1 -b $KB https://github.com/Rohail33/Realking_kernel_sm8250 "$KSRC"
           cd "$KSRC"
+          # 这个树把 CC 包了一层 python2 的 gcc-wrapper.py，Ubuntu 24.04 没有 python2，去掉包装
+          sed -i '/gcc-wrapper.py/d' Makefile
+          grep -n "^CC" Makefile
           git log -1 --oneline
           make kernelversion
           ls -l arch/arm64/configs/munch_defconfig
