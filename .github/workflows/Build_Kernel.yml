@@ -98,6 +98,25 @@ jobs:
             printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
           fi
           grep -rn "linux/pgtable.h" drivers/kernelsu include/linux/pgtable.h | head -3 || true
+          # 4.19 没有 strncpy_from_user_nofault，用 pagefault_disable 包一层等价实现
+          cat > include/linux/ksu_compat.h <<'KSUEOF'
+#ifndef _LINUX_KSU_COMPAT_H
+#define _LINUX_KSU_COMPAT_H
+#include <linux/uaccess.h>
+static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
+{
+	long ret;
+	pagefault_disable();
+	ret = strncpy_from_user(dst, unsafe_addr, count);
+	pagefault_enable();
+	return ret;
+}
+#endif
+KSUEOF
+          grep -rl "strncpy_from_user_nofault" drivers/kernelsu | while read f; do
+            grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
+          done
+          grep -rn "ksu_compat" drivers/kernelsu | head -3 || true
 
       - name: 打 SUSFS 补丁
         if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
