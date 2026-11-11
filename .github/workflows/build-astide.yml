@@ -1,0 +1,90 @@
+name: Build AstideLabs aptusitu kernel
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '设备代号'
+        required: true
+        type: string
+        default: 'munch'
+      ksu:
+        description: 'KernelSU'
+        required: true
+        type: choice
+        default: 'ksu'
+        options:
+          - 'ksu'
+          - 'noksu'
+      branch:
+        description: '源码分支'
+        required: true
+        type: string
+        default: 'update-ksu-susfs'
+
+env:
+  SRC: ${{ github.workspace }}/kernel
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.device }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: 清理磁盘
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio \
+            libssl-dev ccache python-is-python3 unzip libelf-dev
+
+      - name: 准备 Clang 13.0.1
+        run: |
+          mkdir -p $HOME/proton-clang/proton-clang-20210522
+          cd $HOME/proton-clang/proton-clang-20210522
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/13.0.1-20230207-release/Clang-13.0.1-20230207.tar.gz
+          tar -zxf Clang-13.0.1-20230207.tar.gz
+          export PATH="$HOME/proton-clang/proton-clang-20210522/bin:$PATH"
+          clang --version
+
+      - name: 克隆内核源码
+        run: |
+          git clone --depth=1 -b ${{ github.event.inputs.branch }} \
+            https://github.com/AstideLabs/kernel_xiaomi_sm8250_mod "$SRC"
+          cd "$SRC"
+          git log -1 --oneline
+          make kernelversion
+          ls -l arch/arm64/configs/${{ github.event.inputs.device }}_defconfig
+          echo "SUSFS CMD 条数: $(grep -c CMD_SUSFS include/linux/susfs_def.h)"
+          echo "钩子: stat $(grep -c ksu_handle fs/stat.c) exec $(grep -c ksu_handle fs/exec.c) sys $(grep -c ksu_handle kernel/sys.c) reboot $(grep -c ksu_handle kernel/reboot.c)"
+          grep -n "setup.sh" build.sh | head -3
+
+      - name: 编译
+        run: |
+          cd "$SRC"
+          bash build.sh ${{ github.event.inputs.device }} ${{ github.event.inputs.ksu }}
+          ls -l *.zip
+
+      - name: 保留失败日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-failed
+          path: |
+            kernel/build.log
+            kernel/out/.config
+          retention-days: 7
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: astide-${{ github.event.inputs.device }}-${{ github.event.inputs.ksu }}
+          path: ${{ github.workspace }}/kernel/*.zip
+          retention-days: 30
