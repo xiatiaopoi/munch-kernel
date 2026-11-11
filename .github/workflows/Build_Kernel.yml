@@ -70,6 +70,11 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           ls -d drivers/kernelsu
           grep -n kernelsu drivers/Makefile drivers/Kconfig | head
+          # MODULE_IMPORT_NS 是 5.x 才有的宏，4.19 上会当成函数声明直接报错，去掉
+          grep -rl "MODULE_IMPORT_NS" drivers/kernelsu | while read f; do
+            sed -i 's|^MODULE_IMPORT_NS(.*|/* MODULE_IMPORT_NS 在 4.19 不存在，已移除 */|' "$f"
+          done
+          grep -rn "MODULE_IMPORT_NS" drivers/kernelsu | head -3 || true
 
       - name: 生成配置
         run: |
