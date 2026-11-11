@@ -152,6 +152,17 @@ jobs:
             grep -n "ksu_handle_setresuid" kernel/sys.c
           fi
 
+      - name: 更新 SUSFS 到最新
+        if: ${{ github.event.inputs.susfs == 'enable' }}
+        run: |
+          cd "$SRC"
+          git clone --depth=1 -b kernel-4.19 https://github.com/ShirkNeko/susfs4ksu /tmp/susfs
+          cp /tmp/susfs/kernel_patches/include/linux/susfs.h include/linux/susfs.h
+          cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
+          cp /tmp/susfs/kernel_patches/fs/susfs.c fs/susfs.c
+          echo "CMD_SUSFS 条数：$(grep -c CMD_SUSFS include/linux/susfs_def.h)"
+          grep -n "HIDE_SUS_MNTS_FOR_NON_SU_PROCS\|ADD_SUS_MAP\|ENABLE_AVC_LOG_SPOOFING" include/linux/susfs_def.h | head -5
+
       - name: 编译
         run: |
           cd "$SRC"
