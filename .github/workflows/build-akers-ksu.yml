@@ -101,15 +101,15 @@ jobs:
       - name: 打 4.19 兼容补丁
         run: |
           cd "$SRC"
-          grep -rl "MODULE_IMPORT_NS" drivers/kernelsu 2>/dev/null | while read f; do
+          grep -Rl "MODULE_IMPORT_NS" drivers/kernelsu 2>/dev/null | while read f; do
             sed -i 's|^MODULE_IMPORT_NS(.*|/* 4.19 无此宏 */|' "$f"
           done
           if [ ! -f include/linux/pgtable.h ]; then
             printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
           fi
-          if ! grep -rqE "strncpy_from_user_nofault|copy_from_kernel_nofault" drivers/kernelsu --include=*.h 2>/dev/null; then
+          if ! grep -RqE "strncpy_from_user_nofault|copy_from_kernel_nofault" drivers/kernelsu --include=*.h 2>/dev/null; then
           printf '#ifndef _LINUX_KSU_COMPAT_H\n#define _LINUX_KSU_COMPAT_H\n#include <linux/uaccess.h>\nstatic inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)\n{\n\tlong ret;\n\tpagefault_disable();\n\tret = strncpy_from_user(dst, unsafe_addr, count);\n\tpagefault_enable();\n\treturn ret;\n}\nstatic inline long copy_to_kernel_nofault(void *dst, const void __user *src, size_t size)\n{\n\tunsigned long ret;\n\tpagefault_disable();\n\tret = copy_from_user(dst, src, size);\n\tpagefault_enable();\n\treturn ret ? -EFAULT : 0;\n}\nstatic inline long copy_from_kernel_nofault(void *dst, const void *src, size_t size)\n{\n\tif (!access_ok(VERIFY_READ, src, size))\n\t\treturn -EFAULT;\n\tmemcpy(dst, src, size);\n\treturn 0;\n}\n#endif\n' > include/linux/ksu_compat.h
-          grep -rlE "strncpy_from_user_nofault|copy_to_kernel_nofault|copy_from_kernel_nofault" drivers/kernelsu 2>/dev/null | while read f; do
+          grep -RlE "strncpy_from_user_nofault|copy_to_kernel_nofault|copy_from_kernel_nofault" drivers/kernelsu 2>/dev/null | while read f; do
             grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
           done
           else
@@ -128,7 +128,7 @@ jobs:
           if [ -f drivers/kernelsu/infra/seccomp_cache.c ]; then
             printf '#include <linux/types.h>\nstruct seccomp_filter;\nvoid ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\nvoid ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\n' > drivers/kernelsu/infra/seccomp_cache.c
           fi
-          grep -rl "uapi/linux/mount.h" drivers/kernelsu 2>/dev/null | while read f; do
+          grep -Rl "uapi/linux/mount.h" drivers/kernelsu 2>/dev/null | while read f; do
             sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' "$f"
           done
           # ReSukiSU rc3 拒绝 3.x 时代的旧开关钩子，去掉 extern 与条件判断，改成无条件调用
