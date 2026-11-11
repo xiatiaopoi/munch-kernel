@@ -94,6 +94,14 @@ jobs:
             grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
           done
           grep -rn "ksu_compat" drivers/kernelsu | head -3 || true
+          # file_wrapper 引用了 5.x 才有的 f_op 成员，本树没有，去掉相关赋值
+          FW=drivers/kernelsu/infra/file_wrapper.c
+          if [ -f "$FW" ]; then
+            sed -i '/p->ops\.iopoll = /d' "$FW"
+            sed -i '/p->ops\.remap_file_range = /d' "$FW"
+            sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; /* 4.19 无此接口 */|' "$FW"
+            grep -nE "iopoll =|remap_file_range =|init_security_anon" "$FW" | head -5 || true
+          fi
 
       - name: 打 SUSFS 补丁
         if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
