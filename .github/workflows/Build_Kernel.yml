@@ -107,6 +107,11 @@ jobs:
             sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; /* 4.19 无此接口 */|' "$FW"
             grep -nE "init_security_anon" "$FW" | head -3 || true
           fi
+          # seccomp_cache 依赖 5.x 的 seccomp_filter 内部结构，4.19 用空实现替换
+          if [ -f drivers/kernelsu/infra/seccomp_cache.c ]; then
+            printf '#include <linux/types.h>\nstruct seccomp_filter;\nvoid ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\nvoid ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\n' > drivers/kernelsu/infra/seccomp_cache.c
+            echo "seccomp_cache.c 已替换为空实现"
+          fi
 
       - name: 打 SUSFS 补丁
         if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
