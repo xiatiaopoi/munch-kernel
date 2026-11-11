@@ -13,6 +13,7 @@ on:
         default: 'SukiSU-Ultra'
         options:
           - 'SukiSU-Ultra'
+          - 'ReSukiSU'
           - 'None'
       kernel_suffix:
         description: '内核版本后缀，留空用默认'
@@ -75,7 +76,16 @@ jobs:
         if: ${{ github.event.inputs.kernelsu_variant != 'None' }}
         run: |
           cd "$KSRC"
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          KSU_VAR="${{ github.event.inputs.kernelsu_variant }}"
+          if [ "$KSU_VAR" = "ReSukiSU" ]; then
+            KSU_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/v4.2.0-rc1/kernel/setup.sh"
+            KSU_REF="v4.2.0-rc1"
+          else
+            KSU_URL="https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh"
+            KSU_REF="main"
+          fi
+          echo "使用 $KSU_VAR  $KSU_REF"
+          curl -LSs "$KSU_URL" | bash -s "$KSU_REF"
           ls -d drivers/kernelsu
           grep -n kernelsu drivers/Makefile drivers/Kconfig | head
           # MODULE_IMPORT_NS 是 5.x 才有的宏，4.19 上会当成函数声明直接报错，去掉
@@ -151,9 +161,9 @@ jobs:
           if [ -f dtbo.img ]; then cp dtbo.img "$AK/"; fi
           cd "$AK"
           rm -rf .git README.md *placeholder
-          ZIP="/tmp/RealKing-munch-${{ github.run_number }}.zip"
+          ZIP="/tmp/RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.run_number }}.zip"
           zip -r9 "$ZIP" *
-          cp "$ZIP" "$GITHUB_WORKSPACE/"
+          cp "$ZIP" "$GITHUB_WORKSPACE/RealKing-munch-${{ github.event.inputs.kernelsu_variant }}-${{ github.run_number }}.zip"
           ls -l "$ZIP"
 
       - name: 保留编译日志
@@ -169,6 +179,6 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: RealKing-munch-kernel
+          name: RealKing-munch-${{ github.event.inputs.kernelsu_variant }}
           path: ${{ github.workspace }}/RealKing-munch-*.zip
           retention-days: 30
