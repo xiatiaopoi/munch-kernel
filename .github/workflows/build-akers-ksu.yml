@@ -27,6 +27,14 @@ on:
         options:
           - 'enable'
           - 'disable'
+      susfs_src:
+        description: 'SUSFS 来源'
+        required: true
+        type: choice
+        default: 'latest'
+        options:
+          - 'latest'
+          - 'tree'
 
 env:
   SRC: ${{ github.workspace }}/kernel
@@ -153,7 +161,7 @@ jobs:
           fi
 
       - name: 更新 SUSFS 到最新
-        if: ${{ github.event.inputs.susfs == 'enable' }}
+        if: ${{ github.event.inputs.susfs == 'enable' && github.event.inputs.susfs_src == 'latest' }}
         run: |
           cd "$SRC"
           git clone --depth=1 -b kernel-4.19 https://github.com/ShirkNeko/susfs4ksu /tmp/susfs
