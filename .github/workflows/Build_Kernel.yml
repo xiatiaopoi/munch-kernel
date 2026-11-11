@@ -202,9 +202,9 @@ jobs:
           # ⚠️ 4.19 内核兼容性：使用 Clang 14 (r450784d) 而非 Clang 19 (r547379)
           # 4.19 内核代码使用较老的 C 方言和编译器标志，Clang 19+ 可能不兼容
           # Clang 14 (r450784d) 是 Android 14 内核编译的标准工具链
-          key: toolchain-clang-r450784d-gcc
+          key: toolchain-ubuntu-clang14-gcc-v1
           restore-keys: |
-            toolchain-clang-r450784d-gcc-
+            toolchain-ubuntu-clang14-gcc-
             toolchain-
 
       - name: 📥 Download the compilation toolchain (下载编译工具链)
@@ -215,11 +215,17 @@ jobs:
           mkdir -p "$TOOLCHAIN_DIR/gcc/gcc64"
           mkdir -p "$TOOLCHAIN_DIR/gcc/gcc32"
 
-          echo "正在下载 Clang 14 (r450784d — 4.19 内核兼容版本)..."
-          cd "$TOOLCHAIN_DIR/clang"
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz -O clang-r450784d.tar.gz
-          tar -xzf clang-r450784d.tar.gz
-          rm clang-r450784d.tar.gz
+          echo "正在安装 Clang 14 (Ubuntu 软件源，4.19 内核兼容版本)..."
+          sudo apt-get install -y clang-14 lld-14 llvm-14
+          CLANG_DIR="$TOOLCHAIN_DIR/clang"
+          mkdir -p "$CLANG_DIR/bin"
+          for t in clang clang++ ld.lld llvm-ar llvm-nm llvm-strip llvm-objcopy llvm-objdump llvm-ranlib llvm-readelf llvm-size; do
+            if command -v "${t}-14" >/dev/null 2>&1; then
+              ln -sf "$(command -v ${t}-14)" "$CLANG_DIR/bin/$t"
+            fi
+          done
+          "$CLANG_DIR/bin/clang" --version
+          ls "$CLANG_DIR/bin"
 
           echo "正在下载 GCC 64位工具链..."
           cd "$TOOLCHAIN_DIR/gcc/gcc64"
