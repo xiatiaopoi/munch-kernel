@@ -94,13 +94,18 @@ jobs:
             grep -q "ksu_compat.h" "$f" || sed -i '1i #include <linux/ksu_compat.h>' "$f"
           done
           grep -rn "ksu_compat" drivers/kernelsu | head -3 || true
-          # file_wrapper 引用了 5.x 才有的 f_op 成员，本树没有，去掉相关赋值
+          # file_wrapper 用到 5.x 才有的 f_op 成员，给 struct file_operations 补上字段
+          if ! grep -q "REMAP_FILE_DEDUP" include/linux/fs.h; then
+            sed -i 's|^struct file_operations {|#ifndef REMAP_FILE_DEDUP\n#define REMAP_FILE_DEDUP 4\n#endif\n\nstruct file_operations {|' include/linux/fs.h
+          fi
+          if ! grep -q "iopoll)(struct kiocb" include/linux/fs.h; then
+            sed -i 's|^struct file_operations {|struct file_operations {\n\tint (*iopoll)(struct kiocb *kiocb, bool spin);\n\tloff_t (*remap_file_range)(struct file *file_in, loff_t pos_in, struct file *file_out, loff_t pos_out, loff_t len, unsigned int remap_flags);|' include/linux/fs.h
+          fi
+          grep -n "iopoll)(struct kiocb" include/linux/fs.h | head -2
           FW=drivers/kernelsu/infra/file_wrapper.c
           if [ -f "$FW" ]; then
-            sed -i '/p->ops\.iopoll = /d' "$FW"
-            sed -i '/p->ops\.remap_file_range = /d' "$FW"
             sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = 0; /* 4.19 无此接口 */|' "$FW"
-            grep -nE "iopoll =|remap_file_range =|init_security_anon" "$FW" | head -5 || true
+            grep -nE "init_security_anon" "$FW" | head -3 || true
           fi
 
       - name: 打 SUSFS 补丁
