@@ -78,8 +78,8 @@ jobs:
             KSU_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/v4.2.0-rc1/kernel/setup.sh"
             KSU_REF="v4.2.0-rc1"
           else
-            KSU_URL="https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh"
-            KSU_REF="main"
+            KSU_URL="https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/v4.2.1/kernel/setup.sh"
+            KSU_REF="v4.2.1"
           fi
           echo "使用 $KSU_VAR  $KSU_REF"
           curl -LSs "$KSU_URL" | bash -s "$KSU_REF"
