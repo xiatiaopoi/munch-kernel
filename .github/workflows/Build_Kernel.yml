@@ -111,7 +111,9 @@ jobs:
           make ARCH=arm64 O=out LLVM=1 CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- munch_defconfig
           if [ "${{ github.event.inputs.kernelsu_variant }}" != "None" ]; then
-            scripts/config --file out/.config -e KSU -e KSU_MANUAL_HOOK
+            scripts/config --file out/.config -e KSU -e KSU_MANUAL_HOOK \
+              -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK \
+              -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
           fi
           if [ "${{ github.event.inputs.susfs_enable }}" = "enable" ]; then
             scripts/config --file out/.config \
