@@ -112,6 +112,10 @@ jobs:
             printf '#include <linux/types.h>\nstruct seccomp_filter;\nvoid ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\nvoid ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) { (void)filter; (void)nr; }\n' > drivers/kernelsu/infra/seccomp_cache.c
             echo "seccomp_cache.c 已替换为空实现"
           fi
+          # uapi/linux/mount.h 是 5.x 才有的路径
+          grep -rl "uapi/linux/mount.h" drivers/kernelsu 2>/dev/null | while read f; do
+            sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' "$f"
+          done
 
       - name: 打 SUSFS 补丁
         if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
