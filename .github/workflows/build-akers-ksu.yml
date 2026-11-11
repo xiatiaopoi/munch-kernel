@@ -159,7 +159,7 @@ jobs:
           export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
           MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
           make $MAKE_ARGS munch_defconfig
-          scripts/config --file out/.config -e KSU -e KSU_MANUAL_HOOK \
+          scripts/config --file out/.config -e KPROBES -e KSU -e KSU_MANUAL_HOOK \
             -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
           if [ "${{ github.event.inputs.susfs }}" = "enable" ]; then
             scripts/config --file out/.config -e KSU_SUSFS -e KSU_SUSFS_SUS_MOUNT \
@@ -171,6 +171,8 @@ jobs:
               -d KSU_SUSFS_SUS_PATH -d KSU_SUSFS_SUS_OVERLAYFS -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU
           fi
           make $MAKE_ARGS olddefconfig
+          echo "==== KPROBES 状态 ===="
+          grep -E "CONFIG_KPROBES|CONFIG_HAVE_KPROBES" out/.config || true
           echo "==== KSU 相关配置 ===="
           grep -i ksu out/.config | head -25
           echo "==== 驱动 Kconfig 头部 ===="
