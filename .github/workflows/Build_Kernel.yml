@@ -93,6 +93,11 @@ jobs:
             sed -i 's|^MODULE_IMPORT_NS(.*|/* MODULE_IMPORT_NS 在 4.19 不存在，已移除 */|' "$f"
           done
           grep -rn "MODULE_IMPORT_NS" drivers/kernelsu | head -3 || true
+          # 4.19 没有 linux/pgtable.h，SukiSU 里无条件 include，补一个垫片
+          if [ ! -f include/linux/pgtable.h ]; then
+            printf '#ifndef _LINUX_PGTABLE_SHIM_H\n#define _LINUX_PGTABLE_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
+          fi
+          grep -rn "linux/pgtable.h" drivers/kernelsu include/linux/pgtable.h | head -3 || true
 
       - name: 打 SUSFS 补丁
         if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
