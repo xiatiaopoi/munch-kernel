@@ -19,6 +19,14 @@ on:
         required: false
         type: string
         default: ''
+      susfs_enable:
+        description: 'SUSFS 隐藏'
+        required: true
+        type: choice
+        default: 'disable'
+        options:
+          - 'disable'
+          - 'enable'
 
 env:
   KSRC: ${{ github.workspace }}/kernel
@@ -76,6 +84,17 @@ jobs:
           done
           grep -rn "MODULE_IMPORT_NS" drivers/kernelsu | head -3 || true
 
+      - name: 打 SUSFS 补丁
+        if: ${{ github.event.inputs.susfs_enable == 'enable' && github.event.inputs.kernelsu_variant != 'None' }}
+        run: |
+          cd "$KSRC"
+          git clone --depth=1 -b kernel-4.19 https://github.com/ShirkNeko/susfs4ksu /tmp/susfs
+          patch -p1 --forward < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
+          cd "$KSRC/KernelSU"
+          patch -p1 --forward < /tmp/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          cd "$KSRC"
+          grep -rn "CONFIG_KSU_SUSFS" kernel/Kconfig drivers/Kconfig 2>/dev/null | head -3
+
       - name: 生成配置
         run: |
           cd "$KSRC"
@@ -84,6 +103,24 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- munch_defconfig
           if [ "${{ github.event.inputs.kernelsu_variant }}" != "None" ]; then
             scripts/config --file out/.config -e KSU -e KSU_MANUAL_HOOK
+          fi
+          if [ "${{ github.event.inputs.susfs_enable }}" = "enable" ]; then
+            scripts/config --file out/.config \
+              -e KSU_SUSFS \
+              -e KSU_SUSFS_SUS_PATH \
+              -e KSU_SUSFS_SUS_MOUNT \
+              -e KSU_SUSFS_SUS_KSTAT \
+              -e KSU_SUSFS_SPOOF_UNAME \
+              -e KSU_SUSFS_ENABLE_LOG \
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              -e KSU_SUSFS_OPEN_REDIRECT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+              -e KSU_SUSFS_TRY_UMOUNT \
+              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+              -d KSU_SUSFS_SUS_OVERLAYFS \
+              -d KSU_SUSFS_SUS_SU
           fi
           if [ -n "${{ github.event.inputs.kernel_suffix }}" ]; then
             scripts/config --file out/.config --set-str LOCALVERSION "${{ github.event.inputs.kernel_suffix }}"
