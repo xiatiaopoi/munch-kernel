@@ -115,10 +115,17 @@ jobs:
           cd "$SRC"
           if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
             N=$(awk '/SYSCALL_DEFINE4\(reboot,/{f=NR} f && /int ret = 0;/ && NR>f {print NR; exit}' kernel/reboot.c)
-            echo "插入位置 $N"
+            echo "reboot 插入位置 $N"
             { head -n "$N" kernel/reboot.c; printf '#ifdef CONFIG_KSU_MANUAL_HOOK\n\textern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n'; tail -n +$((N+1)) kernel/reboot.c; } > /tmp/reboot.c
             mv /tmp/reboot.c kernel/reboot.c
             grep -n "ksu_handle_sys_reboot" kernel/reboot.c
+          fi
+          if ! grep -q "ksu_handle_setresuid" kernel/sys.c; then
+            N=$(awk '/long __sys_setresuid/{f=NR} f && /make_kuid\(ns, ruid\)/ && NR>f {print NR; exit}' kernel/sys.c)
+            echo "setresuid 插入位置 $N"
+            { head -n $((N-1)) kernel/sys.c; printf '#ifdef CONFIG_KSU_MANUAL_HOOK\n\textern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);\n\tksu_handle_setresuid(ruid, euid, suid);\n#endif\n'; tail -n +$N kernel/sys.c; } > /tmp/sys.c
+            mv /tmp/sys.c kernel/sys.c
+            grep -n "ksu_handle_setresuid" kernel/sys.c
           fi
 
       - name: 编译
