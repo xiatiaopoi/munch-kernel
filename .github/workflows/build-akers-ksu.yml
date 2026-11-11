@@ -77,8 +77,18 @@ jobs:
           fi
           echo "驱动来源 $URL"
           curl -LSs "$URL" | bash -s "$R"
-          ls -d drivers/kernelsu
-          grep -n kernelsu drivers/Makefile drivers/Kconfig | head -3
+          echo "==== 驱动目录检查 ===="
+          ls -ld drivers/kernelsu
+          readlink -f drivers/kernelsu
+          ls drivers/kernelsu | head -10
+          if [ ! -s drivers/kernelsu/Kconfig ]; then
+            echo "Kconfig 缺失，重建链接"
+            rm -rf drivers/kernelsu
+            ln -s ../KernelSU/kernel drivers/kernelsu
+          fi
+          wc -l drivers/kernelsu/Kconfig
+          echo "==== drivers/Kconfig 里的 source ===="
+          grep -n "kernelsu" drivers/Kconfig drivers/Makefile | head -5
 
       - name: 打 4.19 兼容补丁
         run: |
